@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// USER MODEL
+model User {
+  id            Int       @id @default(autoincrement())
+  name          String
+  email         String    @unique
+  password      String?   // nullable - Google OAuth users won't have one
+  googleId      String?   @unique
+  avatar        String?
+  role          String    @default("customer") // customer, agent, admin
+  createdAt     DateTime  @default(now())
+
+  // Relations
+  ticketsRaised    Ticket[]        @relation("CustomerTickets")
+  ticketsAssigned  Ticket[]        @relation("AgentTickets")
+  comments         TicketComment[]
+  notifications    Notification[]
+  attachments      Attachment[]
+  passwordResets   PasswordReset[]
+}
+
+// TICKET MODEL
+model Ticket {
+  id              Int       @id @default(autoincrement())
+  title           String
+  description     String
+  status          String    @default("open") // open, in_progress, resolved, closed
+  priority        String    @default("medium") // low, medium, high, urgent
+  category        String    // Hardware, Software, Network, Access
+
+  customer        User      @relation("CustomerTickets", fields: [customerId], references: [id])
+  customerId      Int
+
+  assignedAgent   User?     @relation("AgentTickets", fields: [assignedAgentId], references: [id])
+  assignedAgentId Int?
+
+  comments        TicketComment[]
+  attachments     Attachment[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  resolvedAt      DateTime?
+}
+
+// TICKET COMMENT MODEL
+model TicketComment {
+  id        Int      @id @default(autoincrement())
+  text      String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  Int
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  createdAt DateTime @default(now())
+}
+
+// ATTACHMENT MODEL
+model Attachment {
+  id             Int      @id @default(autoincrement())
+  filename       String
+  url            String
+  ticket         Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId       Int
+  uploadedBy     User     @relation(fields: [uploadedById], references: [id])
+  uploadedById   Int
+  createdAt      DateTime @default(now())
+}
+
+// NOTIFICATION MODEL
+model Notification {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  message   String
+  type      String   // ticket_created, ticket_assigned, ticket_updated, comment_added
+  link      String?  // e.g. /tickets/5
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// KNOWLEDGE BASE ARTICLE
+model KnowledgeArticle {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  category  String
+  createdAt DateTime @default(now())
+}
+
+// PASSWORD RESET TOKEN
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
