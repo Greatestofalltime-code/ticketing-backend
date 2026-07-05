@@ -13,13 +13,22 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
+        const avatar =
+          profile._json.picture ||
+          profile.photos?.[0]?.value ||
+          null;
+
         // Check if user already exists with this Google ID
         let user = await prisma.user.findUnique({
           where: { googleId: profile.id },
         });
 
         if (user) {
-          // Existing Google user — just return them
+          // Update avatar every login in case it changed
+          user = await prisma.user.update({
+            where: { googleId: profile.id },
+            data: { avatar },
+          });
           return done(null, user);
         }
 
@@ -29,10 +38,10 @@ passport.use(
         });
 
         if (existingEmail) {
-          // Link Google ID to existing account
+          // Link Google ID and avatar to existing account
           user = await prisma.user.update({
             where: { email: profile.emails[0].value },
-            data: { googleId: profile.id },
+            data: { googleId: profile.id, avatar },
           });
           return done(null, user);
         }
@@ -43,7 +52,7 @@ passport.use(
             name: profile.displayName,
             email: profile.emails[0].value,
             googleId: profile.id,
-            avatar: profile.photos[0]?.value,
+            avatar,
             role: "customer",
           },
         });

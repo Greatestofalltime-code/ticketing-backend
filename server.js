@@ -18,13 +18,13 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session — required for Passport OAuth flow
+// Session
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }, // set to true in production with HTTPS
+    cookie: { secure: false },
   })
 );
 
@@ -37,7 +37,16 @@ app.use("/uploads", express.static("uploads"));
 
 // Routes
 const authRoutes = require("./src/routes/authRoutes");
+const ticketRoutes = require("./src/routes/ticketRoutes");
+const commentRoutes = require("./src/routes/commentRoutes");
+const notificationRoutes = require("./src/routes/notificationRoutes");
+const knowledgeRoutes = require("./src/routes/knowledgeRoutes");
+
 app.use("/api/auth", authRoutes);
+app.use("/api/tickets", ticketRoutes);
+app.use("/api/comments", commentRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/knowledge", knowledgeRoutes);
 
 // Health check
 app.get("/", (req, res) => {

@@ -8,8 +8,10 @@ const {
   forgotPassword,
   resetPassword,
   googleCallback,
+  getAgents,
+  createAgent,
 } = require("../controllers/authController");
-const { protect } = require("../middleware/authMiddleware");
+const { protect, requireRole } = require("../middleware/authMiddleware");
 
 // Standard auth
 router.post("/register", register);
@@ -18,12 +20,15 @@ router.get("/me", protect, getMe);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 
+// Agent management (admin only)
+router.get("/agents", protect, requireRole("admin"), getAgents);
+router.post("/agents", protect, requireRole("admin"), createAgent);
+
 // Google OAuth
 router.get(
   "/google",
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
-
 router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),

@@ -18,6 +18,29 @@ const generateToken = (user) => {
 const register = async (req, res) => {
   const { name, email, password, role } = req.body;
 
+    // Server-side validation — never trust only the frontend
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({
+      message: "Password must be at least 8 characters",
+    });
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    return res.status(400).json({
+      message: "Password must contain at least one uppercase letter",
+    });
+  }
+
+  if (!/[0-9]/.test(password)) {
+    return res.status(400).json({
+      message: "Password must contain at least one number",
+    });
+  }
+
   try {
     const existingUser = await prisma.user.findUnique({ where: { email } });
 
@@ -162,7 +185,23 @@ const forgotPassword = async (req, res) => {
 // RESET PASSWORD — using the token from email
 const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({
+      message: "Password must be at least 8 characters",
+    });
+  }
 
+  if (!/[A-Z]/.test(newPassword)) {
+    return res.status(400).json({
+      message: "Password must contain at least one uppercase letter",
+    });
+  }
+
+  if (!/[0-9]/.test(newPassword)) {
+    return res.status(400).json({
+      message: "Password must contain at least one number",
+    });
+  }
   try {
     const resetRequest = await prisma.passwordReset.findUnique({
       where: { token },
@@ -210,6 +249,109 @@ const googleCallback = async (req, res) => {
   }
 };
 
+// GET ALL AGENTS (admin only)
+const getAgents = async (req, res) => {
+  try {
+    const agents = await prisma.user.findMany({
+      where: { role: "agent" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdAt: true,
+        ticketsAssigned: {
+          where: { status: { in: ["open", "in_progress"] } },
+          select: { id: true },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    const agentsWithCount = agents.map((agent) => ({
+      ...agent,
+      activeTickets: agent.ticketsAssigned.length,
+      ticketsAssigned: undefined,
+    }));
+
+    res.json(agentsWithCount);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// CREATE AGENT (admin only)
+const createAgent = async (req, res) => {
+  const { name, email, password } = req.body;
+
+  try {
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters",
+      });
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already registered" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const agent = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: "agent",
+      },
+    });
+
+    // Send welcome email to new agent
+    await sendEmail(
+      email,
+      "Welcome to IT Support Portal — Agent Account Created",
+      `
+        <h2>Welcome to the IT Support Portal</h2>
+        <p>Hi ${name},</p>
+        <p>An agent account has been created for you on the IT Support Portal.</p>
+        <table style="border-collapse:collapse;width:100%;max-width:400px">
+          <tr>
+            <td style="padding:8px;border:1px solid #ddd"><strong>Email</strong></td>
+            <td style="padding:8px;border:1px solid #ddd">${email}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px;border:1px solid #ddd"><strong>Password</strong></td>
+            <td style="padding:8px;border:1px solid #ddd">${password}</td>
+          </tr>
+        </table>
+        <p style="margin-top:16px;color:#666;font-size:14px;">
+          Please log in and change your password immediately.
+        </p>
+        <a href="${process.env.FRONTEND_URL}/login"
+           style="background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:12px;">
+          Log In Now
+        </a>
+      `
+    );
+
+    res.status(201).json({
+      message: "Agent created successfully",
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        email: agent.email,
+        role: agent.role,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -217,4 +359,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   googleCallback,
+  getAgents,
+  createAgent,
 };
