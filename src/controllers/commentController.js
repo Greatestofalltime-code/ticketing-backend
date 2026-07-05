@@ -21,6 +21,13 @@ const addComment = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
+    // Closed tickets — no comments
+    if (ticket.status === "closed") {
+      return res.status(403).json({
+        message: "Cannot comment on a closed ticket",
+      });
+    }
+
     // Customers can only comment on their own tickets
     if (
       req.user.role === "customer" &&
@@ -29,6 +36,21 @@ const addComment = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    // Agents can only comment on tickets assigned to them
+    if (
+      req.user.role === "agent" &&
+      ticket.assignedAgentId !== req.user.id
+    ) {
+      return res.status(403).json({
+        message: "You can only comment on tickets assigned to you",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { name: true },
+    });
+
     const comment = await prisma.ticketComment.create({
       data: {
         text,
@@ -36,13 +58,13 @@ const addComment = async (req, res) => {
         userId: req.user.id,
       },
       include: {
-        user: { select: { id: true, name: true, role: true, avatar: true } },
+        user: {
+          select: { id: true, name: true, role: true, avatar: true },
+        },
       },
     });
 
     // Notify the other party
-    // If agent commented → notify customer
-    // If customer commented → notify agent
     const notifyUser =
       req.user.role === "customer"
         ? ticket.assignedAgent
@@ -57,7 +79,7 @@ const addComment = async (req, res) => {
           <p>Hi ${notifyUser.name},</p>
           <p>A new comment has been added to ticket 
           <strong>#${ticket.id} - ${ticket.title}</strong>:</p>
-          <blockquote style="border-left:4px solid #2563eb;padding:12px;margin:16px 0;background:#f8f9fa;">
+          <blockquote style="border-left:4px solid #2563eb;padding:12px;margin:16px 0;background:#f8f9fa;border-radius:0 6px 6px 0;">
             ${text}
           </blockquote>
           <a href="${process.env.FRONTEND_URL}/tickets/${ticket.id}"
@@ -70,7 +92,7 @@ const addComment = async (req, res) => {
       await prisma.notification.create({
         data: {
           userId: notifyUser.id,
-          message: `New comment on ticket #${ticket.id}`,
+          message: `New comment on ticket #${ticket.id} from ${user.name}`,
           type: "comment_added",
           link: `/tickets/${ticket.id}`,
         },

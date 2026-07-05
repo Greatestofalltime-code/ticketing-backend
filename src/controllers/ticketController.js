@@ -187,6 +187,7 @@ const getTicket = async (req, res) => {
 const updateTicketStatus = async (req, res) => {
   const { id } = req.params;
   const { status, priority, assignedAgentId } = req.body;
+  const requestingUser = req.user;
 
   try {
     const ticket = await prisma.ticket.findUnique({
@@ -201,21 +202,61 @@ const updateTicketStatus = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
+    // Closed tickets cannot be edited by anyone except admin
+    if (ticket.status === "closed" && requestingUser.role !== "admin") {
+      return res.status(403).json({
+        message: "Closed tickets cannot be modified",
+      });
+    }
+
+    // Agents can only edit tickets assigned to them
+    if (
+      requestingUser.role === "agent" &&
+      ticket.assignedAgentId !== requestingUser.id
+    ) {
+      return res.status(403).json({
+        message: "You can only update tickets assigned to you",
+      });
+    }
+
+    // Customers can only reopen resolved tickets
+    if (requestingUser.role === "customer") {
+      if (ticket.customerId !== requestingUser.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (status && status !== "open") {
+        return res.status(403).json({
+          message: "Customers can only reopen resolved tickets",
+        });
+      }
+      if (ticket.status !== "resolved") {
+        return res.status(403).json({
+          message: "You can only reopen a resolved ticket",
+        });
+      }
+    }
+
     const updateData = {};
     if (status) updateData.status = status;
-    if (priority) updateData.priority = priority;
-    if (assignedAgentId !== undefined) {
+
+    // Only agents and admins can change priority
+    if (priority && requestingUser.role !== "customer") {
+      updateData.priority = priority;
+    }
+
+    // Only admins can reassign
+    if (assignedAgentId !== undefined && requestingUser.role === "admin") {
       updateData.assignedAgentId = assignedAgentId
         ? parseInt(assignedAgentId)
         : null;
     }
 
-    // Set resolvedAt when ticket is resolved or closed
+    // Set resolvedAt
     if (status === "resolved" || status === "closed") {
       updateData.resolvedAt = new Date();
     }
 
-    // Clear resolvedAt if ticket is reopened
+    // Clear resolvedAt if reopened
     if (status === "open" || status === "in_progress") {
       updateData.resolvedAt = null;
     }
@@ -231,18 +272,45 @@ const updateTicketStatus = async (req, res) => {
 
     // Notify customer of status change
     if (status && status !== ticket.status) {
+      const statusMessages = {
+        in_progress: "is now being worked on by our support team",
+        resolved: "has been marked as resolved. Please confirm if your issue is fixed",
+        closed: "has been closed",
+        open: "has been reopened",
+      };
+
       await sendEmail(
         ticket.customer.email,
         `Ticket #${ticket.id} Status Updated`,
         `
-          <h2>Your Ticket Status Has Been Updated</h2>
+          <h2>Ticket Status Update</h2>
           <p>Hi ${ticket.customer.name},</p>
           <p>Your ticket <strong>#${ticket.id} - ${ticket.title}</strong> 
-          has been updated.</p>
-          <p>
-            <strong>Previous Status:</strong> ${ticket.status}<br/>
-            <strong>New Status:</strong> ${status}
+          ${statusMessages[status] || "has been updated"}.</p>
+          <table style="border-collapse:collapse;width:100%;max-width:400px;margin:16px 0">
+            <tr>
+              <td style="padding:8px;border:1px solid #ddd;background:#f8f9fa">
+                <strong>Previous Status</strong>
+              </td>
+              <td style="padding:8px;border:1px solid #ddd">
+                ${ticket.status.replace("_", " ")}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border:1px solid #ddd;background:#f8f9fa">
+                <strong>New Status</strong>
+              </td>
+              <td style="padding:8px;border:1px solid #ddd">
+                ${status.replace("_", " ")}
+              </td>
+            </tr>
+          </table>
+          ${status === "resolved" ? `
+          <p style="background:#f0fdf4;padding:12px;border-radius:6px;border-left:4px solid #16a34a">
+            If your issue has been resolved, no action is needed. 
+            If the problem persists, you can reopen this ticket from your dashboard.
           </p>
+          ` : ""}
           <a href="${process.env.FRONTEND_URL}/tickets/${ticket.id}"
              style="background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:16px;">
             View Ticket
@@ -250,11 +318,10 @@ const updateTicketStatus = async (req, res) => {
         `
       );
 
-      // In-app notification for customer
       await prisma.notification.create({
         data: {
           userId: ticket.customerId,
-          message: `Ticket #${ticket.id} status changed to "${status}"`,
+          message: `Ticket #${ticket.id} status changed to "${status.replace("_", " ")}"`,
           type: "ticket_updated",
           link: `/tickets/${ticket.id}`,
         },
@@ -264,7 +331,7 @@ const updateTicketStatus = async (req, res) => {
     // Notify new agent if reassigned
     if (
       assignedAgentId &&
-      assignedAgentId !== ticket.assignedAgentId
+      parseInt(assignedAgentId) !== ticket.assignedAgentId
     ) {
       const newAgent = await prisma.user.findUnique({
         where: { id: parseInt(assignedAgentId) },
