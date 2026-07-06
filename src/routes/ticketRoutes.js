@@ -14,8 +14,18 @@ const upload = require("../middleware/uploadMiddleware");
 router.get("/stats", protect, requireRole("admin"), getDashboardStats);
 router.get("/", protect, getTickets);
 router.get("/:id", protect, getTicket);
-router.post("/", protect, requireRole("customer"), upload.array("attachments", 5), createTicket);
-router.put("/:id", protect, requireRole("agent", "admin"), updateTicketStatus);
+router.post(
+  "/",
+  protect,
+  requireRole("customer"),
+  upload.array("attachments", 5),
+  createTicket
+);
+
+// Allow all authenticated users to update —
+// permission logic handled inside the controller
+router.put("/:id", protect, updateTicketStatus);
+
 router.delete("/:id", protect, requireRole("admin"), deleteTicket);
 
 module.exports = router;
