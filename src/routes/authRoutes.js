@@ -10,6 +10,7 @@ const {
   googleCallback,
   getAgents,
   createAgent,
+  changePassword,
 } = require("../controllers/authController");
 const { protect, requireRole } = require("../middleware/authMiddleware");
 
@@ -19,6 +20,8 @@ router.post("/login", login);
 router.get("/me", protect, getMe);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
+// Add this route
+router.put("/change-password", protect, changePassword);
 
 // Agent management (admin only)
 router.get("/agents", protect, requireRole("admin"), getAgents);

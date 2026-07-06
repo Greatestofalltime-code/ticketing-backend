@@ -352,6 +352,47 @@ const createAgent = async (req, res) => {
   }
 };
 
+// CHANGE PASSWORD
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+
+    if (!user || !user.password) {
+      return res.status(400).json({
+        message: "Cannot change password for Google accounts",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({
+        message: "Current password is incorrect",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { password: hashedPassword },
+    });
+
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -361,4 +402,5 @@ module.exports = {
   googleCallback,
   getAgents,
   createAgent,
+  changePassword,
 };
