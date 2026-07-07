@@ -9,7 +9,6 @@ const createTicket = async (req, res) => {
   const { title, description, priority, category } = req.body;
 
   try {
-    // Auto-assign to agent with fewest active tickets
     const assignedAgent = await autoAssignAgent();
 
     const ticket = await prisma.ticket.create({
@@ -27,7 +26,23 @@ const createTicket = async (req, res) => {
       },
     });
 
-    // Notify assigned agent via email
+    // Save attachments to database
+    if (req.files && req.files.length > 0) {
+      await Promise.all(
+        req.files.map((file) =>
+          prisma.attachment.create({
+            data: {
+              filename: file.originalname,
+              url: `uploads/${file.filename}`,
+              ticketId: ticket.id,
+              uploadedById: req.user.id,
+            },
+          })
+        )
+      );
+    }
+
+    // Notify assigned agent
     if (assignedAgent) {
       await sendEmail(
         assignedAgent.email,
@@ -36,32 +51,31 @@ const createTicket = async (req, res) => {
           <h2>New Ticket Assigned to You</h2>
           <p>Hi ${assignedAgent.name},</p>
           <p>A new ticket has been assigned to you:</p>
-          <table style="border-collapse:collapse;width:100%">
+          <table style="border-collapse:collapse;width:100%;max-width:400px">
             <tr>
-              <td style="padding:8px;border:1px solid #ddd"><strong>Ticket ID</strong></td>
+              <td style="padding:8px;border:1px solid #ddd;background:#f8f9fa"><strong>Ticket ID</strong></td>
               <td style="padding:8px;border:1px solid #ddd">#${ticket.id}</td>
             </tr>
             <tr>
-              <td style="padding:8px;border:1px solid #ddd"><strong>Title</strong></td>
+              <td style="padding:8px;border:1px solid #ddd;background:#f8f9fa"><strong>Title</strong></td>
               <td style="padding:8px;border:1px solid #ddd">${ticket.title}</td>
             </tr>
             <tr>
-              <td style="padding:8px;border:1px solid #ddd"><strong>Priority</strong></td>
+              <td style="padding:8px;border:1px solid #ddd;background:#f8f9fa"><strong>Priority</strong></td>
               <td style="padding:8px;border:1px solid #ddd">${ticket.priority}</td>
             </tr>
             <tr>
-              <td style="padding:8px;border:1px solid #ddd"><strong>Category</strong></td>
+              <td style="padding:8px;border:1px solid #ddd;background:#f8f9fa"><strong>Category</strong></td>
               <td style="padding:8px;border:1px solid #ddd">${ticket.category}</td>
             </tr>
           </table>
-          <a href="${process.env.FRONTEND_URL}/tickets/${ticket.id}" 
+          <a href="${process.env.FRONTEND_URL}/tickets/${ticket.id}"
              style="background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:16px;">
             View Ticket
           </a>
         `
       );
 
-      // Create in-app notification for agent
       await prisma.notification.create({
         data: {
           userId: assignedAgent.id,
@@ -72,7 +86,6 @@ const createTicket = async (req, res) => {
       });
     }
 
-    // Create in-app notification for customer
     await prisma.notification.create({
       data: {
         userId: req.user.id,
@@ -82,7 +95,21 @@ const createTicket = async (req, res) => {
       },
     });
 
-    res.status(201).json(ticket);
+    // Return ticket with attachments
+    const ticketWithAttachments = await prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      include: {
+        customer: { select: { id: true, name: true, email: true } },
+        assignedAgent: { select: { id: true, name: true, email: true } },
+        attachments: {
+          include: {
+            uploadedBy: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    res.status(201).json(ticketWithAttachments);
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
